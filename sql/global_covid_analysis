@@ -1,1 +1,167 @@
+-- ============================================================
+-- Global COVID-19 Data Analysis
+-- Tool: SQL Server (SSMS)
+-- Tables: CovidDeaths_clean, CovidVaccinations_clean
+-- Author: Enos Mohod
+-- ============================================================
 
+
+-- ============================================================
+-- 1️⃣ Data Cleaning & Standardization
+-- ============================================================
+
+-- Clean Covid Deaths Data
+SELECT
+    iso_code,
+    continent,
+    location,
+    CAST(date AS DATE) AS date,
+    CAST(population AS BIGINT) AS population,
+    CAST(total_cases AS BIGINT) AS total_cases,
+    CAST(new_cases AS BIGINT) AS new_cases,
+    CAST(total_deaths AS BIGINT) AS total_deaths,
+    CAST(new_deaths AS BIGINT) AS new_deaths
+INTO CovidDeaths_clean
+FROM CovidDeaths;
+
+
+-- Clean Vaccination Data
+SELECT
+    iso_code,
+    continent,
+    location,
+    CAST(date AS DATE) AS date,
+    CAST(total_vaccinations AS FLOAT) AS total_vaccinations,
+    CAST(people_vaccinated AS FLOAT) AS people_vaccinated,
+    CAST(people_fully_vaccinated AS FLOAT) AS people_fully_vaccinated,
+    CAST(new_vaccinations AS FLOAT) AS new_vaccinations
+INTO CovidVaccinations_clean
+FROM CovidVaccinations;
+
+
+
+-- ============================================================
+-- 2️⃣ Case Fatality Rate (Death %)
+-- ============================================================
+
+-- Country-level Death Percentage
+SELECT 
+    location,
+    MAX(total_cases) AS total_cases,
+    MAX(total_deaths) AS total_deaths,
+    CAST(
+        MAX(total_deaths) * 100.0 
+        / NULLIF(MAX(total_cases), 0)
+        AS DECIMAL(6,2)
+    ) AS death_percentage
+FROM CovidDeaths_clean
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY death_percentage DESC;
+
+
+-- India Specific Death Percentage Trend
+SELECT 
+    date,
+    total_cases,
+    total_deaths,
+    CAST(
+        total_deaths * 100.0 
+        / NULLIF(total_cases, 0)
+        AS DECIMAL(6,2)
+    ) AS death_percentage
+FROM CovidDeaths_clean
+WHERE location = 'India'
+ORDER BY date;
+
+
+
+-- ============================================================
+-- 3️⃣ Infection Rate vs Population
+-- ============================================================
+
+-- Countries with Highest Infection Rate
+SELECT 
+    location,
+    MAX(total_cases) AS total_cases,
+    MAX(population) AS population,
+    CAST(
+        MAX(total_cases) * 100.0 
+        / NULLIF(MAX(population), 0)
+        AS DECIMAL(6,2)
+    ) AS percent_population_infected
+FROM CovidDeaths_clean
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY percent_population_infected DESC;
+
+
+
+-- ============================================================
+-- 4️⃣ Global Death Percentage Over Time
+-- ============================================================
+
+SELECT 
+    date,
+    SUM(new_cases) AS global_new_cases,
+    SUM(new_deaths) AS global_new_deaths,
+    CAST(
+        SUM(new_deaths) * 100.0 
+        / NULLIF(SUM(new_cases), 0)
+        AS DECIMAL(6,2)
+    ) AS global_death_percentage
+FROM CovidDeaths_clean
+WHERE continent IS NOT NULL
+GROUP BY date
+ORDER BY date;
+
+
+
+-- ============================================================
+-- 5️⃣ Highest Death Count by Country
+-- ============================================================
+
+SELECT 
+    location,
+    MAX(total_deaths) AS total_death_count
+FROM CovidDeaths_clean
+WHERE continent IS NOT NULL
+GROUP BY location
+ORDER BY total_death_count DESC;
+
+
+
+-- ============================================================
+-- 6️⃣ Vaccination Analysis (Rolling Total)
+-- ============================================================
+
+WITH vaccination_progress AS (
+    SELECT 
+        d.continent,
+        d.location,
+        d.date,
+        d.population,
+        v.new_vaccinations,
+        SUM(v.new_vaccinations) 
+            OVER (PARTITION BY d.location ORDER BY d.date)
+            AS rolling_people_vaccinated
+    FROM CovidDeaths_clean d
+    JOIN CovidVaccinations_clean v
+        ON d.location = v.location
+        AND d.date = v.date
+    WHERE d.continent IS NOT NULL
+)
+SELECT 
+    continent,
+    location,
+    date,
+    population,
+    new_vaccinations,
+    rolling_people_vaccinated,
+    CAST(
+        rolling_people_vaccinated * 100.0 
+        / NULLIF(population, 0)
+        AS DECIMAL(6,2)
+    ) AS vaccination_percentage
+FROM vaccination_progress
+ORDER BY location, date;
